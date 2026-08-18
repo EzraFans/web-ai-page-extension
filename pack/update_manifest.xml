@@ -8,6 +8,6 @@
 -->
 <gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
   <app appid='oedbdafhhbgjdheolckdcdeglmfbepap'>
-    <updatecheck codebase='https://your-server.example.com/wpx/ai-prompt-quick-insert.crx' version='0.3.0' />
+    <updatecheck codebase='https://your-server.example.com/wpx/ai-prompt-quick-insert.crx' version='0.3.2' />
   </app>
 </gupdate>

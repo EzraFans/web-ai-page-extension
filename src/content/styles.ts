@@ -251,6 +251,21 @@ export const FLOATER_STYLES = `
 .quick-add-btn:hover {
   background: var(--wpx-primary-strong);
 }
+.quick-cancel-btn {
+  border: 1px solid var(--wpx-border);
+  background: transparent;
+  color: var(--wpx-dim);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.quick-cancel-btn:hover {
+  border-color: var(--wpx-primary);
+  color: var(--wpx-text);
+}
 .quick-error {
   font-size: 11px;
   color: var(--wpx-danger);

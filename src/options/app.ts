@@ -7,7 +7,7 @@ import {
 } from '../shared/types';
 import { el } from './el';
 import { initSites, renderSitesSection } from './sites';
-import { exportAll, importFromFile } from './backup';
+import { exportData, importFromFile } from './backup';
 
 type Tab = 'prompts' | 'sites';
 const TABS: Array<[Tab, string]> = [
@@ -69,19 +69,24 @@ function render(root: HTMLElement): void {
     }),
   );
 
-  // 备份：导出 / 导入
+  // 备份：按当前 Tab 区分范围（Prompt 管理页=导入导出 prompt，站点管理页=站点配置）
   const actions = el('div', { class: 'header-actions' });
-  const expBtn = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '导出配置' });
-  expBtn.onclick = () => void exportAll();
+  const expBtn = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '导出' });
+  expBtn.onclick = () => void exportData(tab);
   const fileInput = el('input', { type: 'file', accept: '.json,application/json' }) as HTMLInputElement;
   fileInput.style.display = 'none';
+  // 文件选择框打开期间 Tab 理论上可切换，以点击导入按钮那一刻的范围为准
+  let importScope: 'prompts' | 'sites' = tab;
   fileInput.addEventListener('change', () => {
     const f = fileInput.files?.[0];
     fileInput.value = ''; // 允许重复选择同一文件
-    if (f) void importFromFile(f);
+    if (f) void importFromFile(f, importScope);
   });
-  const impBtn = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '导入配置' });
-  impBtn.onclick = () => fileInput.click();
+  const impBtn = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '导入' });
+  impBtn.onclick = () => {
+    importScope = tab;
+    fileInput.click();
+  };
   actions.append(impBtn, expBtn, fileInput);
 
   header.append(headMain, actions);

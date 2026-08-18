@@ -12,6 +12,9 @@ export class Panel {
   private searchEl: HTMLInputElement;
   private quickWrap: HTMLElement;
   private quickToggleBtn: HTMLElement;
+  /** 快捷新增表单的输入框引用（取消时清空用） */
+  private quickName: HTMLInputElement | null = null;
+  private quickContent: HTMLTextAreaElement | null = null;
   private errEl: HTMLElement = el('div', { class: 'quick-error' });
   private prompts: Prompt[] = [];
   /** 当前搜索过滤后的列表（数字键快选按它取） */
@@ -80,7 +83,13 @@ export class Panel {
     document.addEventListener('keydown', (e) => {
       if (!this.open) return;
       if (e.key === 'Escape') {
-        this.setOpen(false);
+        // 快捷新增表单展开时，Esc 先收表单（取消添加），再按才关面板
+        if (this.quickWrap.style.display !== 'none') {
+          this.collapseQuickForm();
+          this.searchEl.focus();
+        } else {
+          this.setOpen(false);
+        }
         return;
       }
       if (e.key === 'Enter' && e.target === this.searchEl) {
@@ -174,12 +183,14 @@ export class Panel {
       placeholder: '名称',
       maxlength: '50',
     }) as HTMLInputElement;
+    this.quickName = nameInput;
     nameRow.append(nameInput);
 
     const contentInput = el('textarea', {
       class: 'quick-input quick-textarea',
       placeholder: 'prompt 内容…',
     }) as HTMLTextAreaElement;
+    this.quickContent = contentInput;
 
     const posRow = el('div', { class: 'quick-row' });
     const selectPos = el('select', { class: 'quick-input' }) as HTMLSelectElement;
@@ -190,7 +201,13 @@ export class Panel {
 
     const addBtn = el('button', { class: 'quick-add-btn', text: '添加' });
     addBtn.addEventListener('click', () => void submit());
-    posRow.append(selectPos, addBtn);
+    // 取消：清空表单收起，退回 prompt 选择视图
+    const cancelBtn = el('button', { class: 'quick-cancel-btn', text: '取消' });
+    cancelBtn.addEventListener('click', () => {
+      this.collapseQuickForm();
+      this.searchEl.focus();
+    });
+    posRow.append(selectPos, addBtn, cancelBtn);
 
     const submit = async () => {
       const input = {
@@ -208,8 +225,7 @@ export class Panel {
         nameInput.value = '';
         contentInput.value = '';
         this.errEl.textContent = '';
-        this.quickWrap.style.display = 'none';
-        this.quickToggleBtn.style.display = '';
+        this.collapseQuickForm(false);
       } catch (e) {
         this.errEl.textContent = e instanceof Error ? e.message : '保存失败';
       }
@@ -217,14 +233,37 @@ export class Panel {
 
     this.quickWrap.append(nameRow, contentInput, posRow, this.errEl);
 
-    this.quickToggleBtn.replaceChildren(
-      svgIcon(Array.from(ICONS.plus), 12),
-      '快捷新增',
-    );
+    this.updateQuickToggle();
     this.quickToggleBtn.addEventListener('click', () => {
-      const hidden = this.quickWrap.style.display === 'none';
-      this.quickWrap.style.display = hidden ? 'flex' : 'none';
-      if (hidden) nameInput.focus();
+      const collapsed = this.quickWrap.style.display === 'none';
+      if (collapsed) {
+        this.quickWrap.style.display = 'flex';
+        this.updateQuickToggle();
+        nameInput.focus();
+      } else {
+        this.collapseQuickForm();
+      }
     });
+  }
+
+  /** 收起快捷新增表单；clear=true 时同时清空已填内容 */
+  private collapseQuickForm(clear = true): void {
+    if (clear) {
+      if (this.quickName) this.quickName.value = '';
+      if (this.quickContent) this.quickContent.value = '';
+      this.errEl.textContent = '';
+    }
+    this.quickWrap.style.display = 'none';
+    this.updateQuickToggle();
+  }
+
+  /** 切换按钮文案随表单状态变化：收起时「+ 快捷新增」，展开时「收起 ↑」 */
+  private updateQuickToggle(): void {
+    const expanded = this.quickWrap.style.display !== 'none';
+    if (expanded) {
+      this.quickToggleBtn.replaceChildren('收起 ↑');
+    } else {
+      this.quickToggleBtn.replaceChildren(svgIcon(Array.from(ICONS.plus), 12), '快捷新增');
+    }
   }
 }

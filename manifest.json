@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Prompt Quick Insert",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "在豆包和 DeepSeek 输入框旁快速插入自定义 Prompt（仅填入不发送），每条 prompt 可独立配置插入位置",
   "minimum_chrome_version": "138",
   "icons": {

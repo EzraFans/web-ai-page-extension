@@ -3,37 +3,43 @@ import { syncSiteScripts } from '../shared/site-scripts';
 import { validatePromptInput, type Prompt, type SiteConfig } from '../shared/types';
 
 /**
- * 配置备份：导出全部 prompt + 站点为 JSON；导入时逐条校验、
- * prompt 同 id 覆盖、站点跳过内置与域名冲突项，导入后重注册动态脚本。
+ * 配置备份（按当前 Tab 区分范围）：
+ * - prompts：仅导出/导入 prompt（同 id 覆盖、新 id 追加）
+ * - sites：仅导出/导入站点配置——内置站点按 id 覆盖（保留用户改过的选择器），
+ *   自建站点 id 相同覆盖、域名撞别的站点跳过，导入后重注册动态脚本
  */
+
+export type BackupKind = 'prompts' | 'sites';
 
 interface BackupFile {
   kind: 'wpx-backup';
   version: 1;
+  scope: BackupKind;
   exportedAt: string;
   prompts: Prompt[];
   sites: SiteConfig[];
 }
 
-export async function exportAll(): Promise<void> {
+export async function exportData(scope: BackupKind): Promise<void> {
   const [prompts, siteList] = await Promise.all([storage.list(), sites.list()]);
   const data: BackupFile = {
     kind: 'wpx-backup',
     version: 1,
+    scope,
     exportedAt: new Date().toISOString(),
-    prompts,
-    sites: siteList,
+    prompts: scope === 'prompts' ? prompts : [],
+    sites: scope === 'sites' ? siteList : [],
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `wpx-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `wpx-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
-export async function importFromFile(file: File): Promise<void> {
+export async function importFromFile(file: File, scope: BackupKind): Promise<void> {
   let data: BackupFile;
   try {
     data = JSON.parse(await file.text()) as BackupFile;
@@ -41,15 +47,21 @@ export async function importFromFile(file: File): Promise<void> {
     alert('文件不是有效的 JSON');
     return;
   }
-  if (!data || data.kind !== 'wpx-backup' || !Array.isArray(data.prompts)) {
+  if (!data || data.kind !== 'wpx-backup') {
     alert('不是本扩展导出的备份文件（缺少 wpx-backup 标识）');
     return;
   }
+  if (scope === 'prompts') await importPrompts(data);
+  else await importSites(data);
+}
 
-  // ---- prompt：结构 + 业务校验 ----
-  const validPrompts: Prompt[] = [];
-  let badPrompts = 0;
-  for (const p of data.prompts) {
+// ---------- prompt ----------
+
+async function importPrompts(data: BackupFile): Promise<void> {
+  const items = Array.isArray(data.prompts) ? data.prompts : [];
+  const valid: Prompt[] = [];
+  let bad = 0;
+  for (const p of items) {
     const shapeOk =
       typeof p?.id === 'string' &&
       p.id.length > 0 &&
@@ -61,24 +73,46 @@ export async function importFromFile(file: File): Promise<void> {
       !validatePromptInput({ name: p.name, content: p.content, position: p.position })
     ) {
       const now = Date.now();
-      validPrompts.push({ ...p, createdAt: p.createdAt || now, updatedAt: now });
+      valid.push({ ...p, createdAt: p.createdAt || now, updatedAt: now });
     } else {
-      badPrompts++;
+      bad++;
     }
   }
+  if (valid.length === 0) {
+    alert(bad ? `没有可导入的 prompt（${bad} 条无效）` : '文件里没有 prompt 数据');
+    return;
+  }
+  if (
+    !confirm(
+      `确认导入 ${valid.length} 条 prompt？${bad ? `（另有 ${bad} 条无效将跳过）` : ''}\n同 id 的条目将被覆盖。`,
+    )
+  ) {
+    return;
+  }
+  const { added, updated } = await storage.importAll(valid);
+  alert(`导入完成：新增 ${added} 条，覆盖 ${updated} 条。`);
+}
 
-  // ---- 站点：跳过内置 id 与域名冲突 ----
+// ---------- 站点 ----------
+
+async function importSites(data: BackupFile): Promise<void> {
+  const items = Array.isArray(data.sites) ? data.sites : [];
   const existing = await sites.list();
-  const existingHosts = new Set(existing.flatMap((s) => s.hostnames));
-  const validSites: SiteConfig[] = [];
-  let badSites = 0;
-  let clashSites = 0;
-  const siteItems = Array.isArray(data.sites) ? data.sites : [];
-  for (const s of siteItems) {
+  const byId = new Map(existing.map((s) => [s.id, s]));
+  // hostname → 站点 id 映射，用于域名冲突检测
+  const hostOwner = new Map<string, string>();
+  for (const s of existing) for (const h of s.hostnames) hostOwner.set(h, s.id);
+
+  const toSave: SiteConfig[] = [];
+  let bad = 0;
+  let clash = 0;
+  let unknownBuiltin = 0;
+  for (const s of items) {
     const shapeOk =
       !!s &&
       typeof s.id === 'string' &&
-      s.builtin === false &&
+      s.id.length > 0 &&
+      typeof s.name === 'string' &&
       Array.isArray(s.matchPatterns) &&
       s.matchPatterns.length > 0 &&
       Array.isArray(s.hostnames) &&
@@ -87,42 +121,46 @@ export async function importFromFile(file: File): Promise<void> {
       (s.anchorMode === 'auto' || s.anchorMode === 'selector') &&
       typeof s.buttonOffset === 'object' && s.buttonOffset !== null;
     if (!shapeOk) {
-      badSites++;
+      bad++;
       continue;
     }
-    if (s.hostnames.some((h) => existingHosts.has(h))) {
-      clashSites++;
+    if (s.builtin) {
+      // 内置站点：本机已有同 id 才覆盖（保留用户改过的选择器），未知内置忽略
+      if (byId.has(s.id)) toSave.push(s);
+      else unknownBuiltin++;
       continue;
     }
-    for (const h of s.hostnames) existingHosts.add(h);
-    validSites.push(s);
+    // 自建站点：域名被「别的」站点占用则跳过
+    const clashed = s.hostnames.some((h) => hostOwner.has(h) && hostOwner.get(h) !== s.id);
+    if (clashed) {
+      clash++;
+      continue;
+    }
+    toSave.push(s);
   }
 
-  if (validPrompts.length === 0 && validSites.length === 0) {
-    alert('没有可导入的内容（条目无效或全部冲突）');
+  if (toSave.length === 0) {
+    alert(
+      `没有可导入的站点${
+        bad || clash || unknownBuiltin
+          ? `（无效 ${bad}、域名冲突 ${clash}、未知内置 ${unknownBuiltin}）`
+          : ''
+      }，或文件里没有站点数据`,
+    );
     return;
   }
-
-  const summary = [
-    `prompt：导入 ${validPrompts.length} 条${badPrompts ? `，无效跳过 ${badPrompts} 条` : ''}`,
-    validSites.length
-      ? `站点：导入 ${validSites.length} 个${clashSites ? `，域名冲突跳过 ${clashSites} 个` : ''}${
-          badSites ? `，无效跳过 ${badSites} 个` : ''
-        }`
-      : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-  if (!confirm(`确认导入？\n${summary}\n\n同 id 的条目将被覆盖（导入后导入文件里没有的条目不受影响）。`)) {
+  if (
+    !confirm(
+      `确认导入 ${toSave.length} 个站点？${clash ? `（${clash} 个域名冲突跳过）` : ''}\n同 id 的站点将被覆盖。`,
+    )
+  ) {
     return;
   }
-
-  const { added, updated } = await storage.importAll(validPrompts);
-  for (const s of validSites) await sites.save(s);
+  for (const s of toSave) await sites.save(s);
   const list = await sites.list();
   const result = await syncSiteScripts(list);
   const regFail = result.failed.length
     ? `\n注意：站点 ${result.failed.join('、')} 注册失败，请在站点管理里点「授权」`
     : '';
-  alert(`导入完成：prompt 新增 ${added} 条、覆盖 ${updated} 条；站点 ${validSites.length} 个。${regFail}`);
+  alert(`导入完成：站点 ${toSave.length} 个。${regFail}`);
 }
