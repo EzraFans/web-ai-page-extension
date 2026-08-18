@@ -9,10 +9,14 @@ import { el, svgIcon, ICONS } from './ui';
 export class Panel {
   readonly root: HTMLElement;
   private listEl: HTMLElement;
+  private searchEl: HTMLInputElement;
   private quickWrap: HTMLElement;
   private quickToggleBtn: HTMLElement;
   private errEl: HTMLElement = el('div', { class: 'quick-error' });
   private prompts: Prompt[] = [];
+  /** 当前搜索过滤后的列表（数字键快选按它取） */
+  private filtered: Prompt[] = [];
+  private query = '';
   private onPick: (p: Prompt) => void;
   private open = false;
 
@@ -31,6 +35,17 @@ export class Panel {
     });
     head.append(manage);
 
+    // 搜索框：按名称/内容过滤
+    this.searchEl = el('input', {
+      class: 'panel-search',
+      type: 'text',
+      placeholder: '搜索，回车选第一条，数字键 1-9 快选…',
+    }) as HTMLInputElement;
+    this.searchEl.addEventListener('input', () => {
+      this.query = this.searchEl.value;
+      this.renderList();
+    });
+
     this.listEl = el('ul', { class: 'list' });
 
     // 快捷新增（默认收起）
@@ -38,7 +53,7 @@ export class Panel {
     this.quickWrap = el('div', { class: 'quick-form', style: 'display:none' });
     this.buildQuickForm();
 
-    this.root.append(head, this.listEl, this.quickWrap, this.quickToggleBtn);
+    this.root.append(head, this.searchEl, this.listEl, this.quickWrap, this.quickToggleBtn);
 
     void storage.list().then((ps) => {
       this.prompts = ps;
@@ -61,15 +76,46 @@ export class Panel {
       if (host && t instanceof Node && host.contains(t)) return; // 扩展自己的 UI，不关
       this.setOpen(false);
     }, true);
-    // Esc 关闭
+    // Esc 关闭；数字键 1-9 快选；搜索框内回车选第一条
     document.addEventListener('keydown', (e) => {
-      if (this.open && e.key === 'Escape') this.setOpen(false);
+      if (!this.open) return;
+      if (e.key === 'Escape') {
+        this.setOpen(false);
+        return;
+      }
+      if (e.key === 'Enter' && e.target === this.searchEl) {
+        const first = this.filtered[0];
+        if (first) this.pickAndClose(first);
+        return;
+      }
+      // 焦点在面板表单里时，数字/回车交给表单本身
+      const target = e.target;
+      if (target instanceof HTMLElement && target.closest('input, textarea, select')) return;
+      const idx = Number(e.key);
+      if (Number.isInteger(idx) && idx >= 1 && idx <= 9) {
+        const p = this.filtered[idx - 1];
+        if (p) this.pickAndClose(p);
+      }
     }, true);
+  }
+
+  private pickAndClose(p: Prompt): void {
+    this.onPick(p);
+    this.setOpen(false);
   }
 
   setOpen(open: boolean): void {
     this.open = open;
     this.root.classList.toggle('open', open);
+    if (open) {
+      this.query = '';
+      this.searchEl.value = '';
+      this.renderList();
+      // 等 display:flex 生效后再聚焦搜索框
+      setTimeout(() => this.searchEl.focus(), 0);
+    } else {
+      this.query = '';
+    }
   }
 
   isOpen(): boolean {
@@ -78,15 +124,27 @@ export class Panel {
 
   private renderList(): void {
     this.listEl.replaceChildren();
-    if (this.prompts.length === 0) {
+    const q = this.query.trim().toLowerCase();
+    const list = q
+      ? this.prompts.filter(
+          (p) => p.name.toLowerCase().includes(q) || p.content.toLowerCase().includes(q),
+        )
+      : this.prompts;
+    this.filtered = list;
+
+    if (list.length === 0) {
       this.listEl.append(
-        el('li', { class: 'empty-tip', text: '还没有 prompt，点下方「快捷新增」创建一条' }),
+        el('li', {
+          class: 'empty-tip',
+          text: q ? '没有匹配的 prompt' : '还没有 prompt，点下方「快捷新增」创建一条',
+        }),
       );
       return;
     }
-    for (const p of this.prompts) {
+    list.forEach((p, i) => {
       const li = el('li', { class: 'item' });
       const nameRow = el('span', { class: 'item-name' });
+      if (i < 9) nameRow.append(el('span', { class: 'item-idx', text: String(i + 1) }));
       nameRow.append(el('span', { text: p.name }));
       nameRow.append(
         el('span', {
@@ -101,12 +159,9 @@ export class Panel {
           text: p.content.replace(/\s+/g, ' ').slice(0, 60),
         }),
       );
-      li.addEventListener('click', () => {
-        this.onPick(p);
-        this.setOpen(false);
-      });
+      li.addEventListener('click', () => this.pickAndClose(p));
       this.listEl.append(li);
-    }
+    });
   }
 
   private buildQuickForm(): void {

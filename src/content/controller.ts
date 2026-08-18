@@ -6,6 +6,7 @@ import { insertPrompt } from './injector';
 import { Panel } from './panel';
 import { FLOATER_STYLES } from './styles';
 import { el, svgIcon, ICONS } from './ui';
+import { resolveVariables } from '../shared/variables';
 
 /** 诊断日志（带前缀，方便用户在控制台过滤 wpx 排查问题） */
 function log(...args: unknown[]): void {
@@ -112,8 +113,8 @@ export class FloaterController {
     const input = this.adapter.findInput() ?? this.inputEl;
     this.inputEl = input;
 
-    // 锚定输入框容器（而非编辑元素本身）的右上角，两站点统一观感
-    const container = findInputContainer(input);
+    // 锚定输入框容器（而非编辑元素本身）的右上角；站点配置了自定义锚定时优先
+    const container = this.adapter.findAnchor?.(input) ?? findInputContainer(input);
     if (container !== this.lastContainer) {
       this.lastContainer = container;
       const r = container.getBoundingClientRect();
@@ -261,10 +262,33 @@ export class FloaterController {
       return;
     }
     this.inputEl = input;
-    const ok = await insertPrompt(input, p.content, p.position);
-    log('插入结果', ok ? '成功' : '失败', p.name);
-    this.showToast(ok ? `已插入「${p.name}」` : '插入失败，请手动粘贴', ok ? 'ok' : 'err');
-    if (ok) input.focus();
+    // 变量占位符替换（{{clipboard}} 等）；解析失败的变量保留字面量并提示
+    const { text, failed } = await resolveVariables(p.content, {
+      clipboard: () => navigator.clipboard.readText(),
+      selection: () => window.getSelection()?.toString() ?? '',
+      url: location.href,
+      title: document.title,
+    });
+    const ok = await insertPrompt(input, text, p.position);
+    log('插入结果', ok ? '成功' : '失败', p.name, failed.length ? `未替换变量: ${failed.join(',')}` : '');
+    if (!ok) {
+      this.showToast('插入失败，请手动粘贴', 'err');
+      return;
+    }
+    this.showToast(
+      failed.length
+        ? `已插入，但 ${failed.map((f) => `{{${f}}}`).join('、')} 未替换`
+        : `已插入「${p.name}」`,
+      failed.length ? 'err' : 'ok',
+    );
+    input.focus();
+  }
+
+  /** 快捷键入口（background commands → 消息）：开关面板 */
+  togglePanel(): void {
+    if (!this.panel || !this.host) return;
+    this.panel.setOpen(!this.panel.isOpen());
+    this.reposition();
   }
 
   private showToast(text: string, kind: 'ok' | 'err'): void {

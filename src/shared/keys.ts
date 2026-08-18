@@ -10,6 +10,9 @@ export function promptKey(id: string): string {
 /** 索引 key：wpx:index */
 export const INDEX_KEY = `${PREFIX}:index`;
 
+/** 站点配置数组 key：wpx:sites（整体读写，体量小） */
+export const SITES_KEY = `${PREFIX}:sites`;
+
 export const EMPTY_INDEX: StorageIndex = { version: 1, order: [] };
 
 /** sync 总量软上限（实际 102400 字节），超过后新写入降级 local */

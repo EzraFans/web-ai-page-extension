@@ -4,9 +4,14 @@ export interface SiteAdapter {
   /** 找到当前页面的聊天输入框（textarea 或 contenteditable），找不到返回 null */
   findInput(): HTMLElement | null;
   /**
-   * 悬浮按钮相对输入框容器右上角的偏移（站点布局差异微调用）。
-   * right: 按钮右缘离容器右边缘的距离（负值 = 放到容器外侧右边，不遮挡输入区）；
-   * down: 按钮顶缘离容器顶边的距离（负值 = 略高出容器顶边）。
+   * 悬浮按钮的锚定元素（定位基准）。缺省用 findInputContainer 启发式；
+   * 站点配置了自定义锚定选择器时由工厂注入实现。
+   */
+  findAnchor?(editEl: HTMLElement): HTMLElement | null;
+  /**
+   * 悬浮按钮相对锚定元素右上角的偏移（站点布局差异微调用）。
+   * right: 按钮右缘离锚定元素右边缘的距离（负值 = 放到元素外侧右边，不遮挡输入区）；
+   * down: 按钮顶缘离锚定元素顶边的距离（负值 = 略高出顶边）。
    */
   buttonOffset?: { right: number; down: number };
 }

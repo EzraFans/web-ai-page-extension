@@ -11,6 +11,7 @@ npm install
 npm run build     # 类型检查 + 主构建（background/options）+ content 构建
 npm run dev       # 两个 watch 并行，改完代码后到 chrome://extensions 刷新扩展
 npm run typecheck
+npm test          # 单元测试（变量替换 / 站点与 prompt 校验，node --test）
 npm run pack      # 发布打包：crx + 版本号 zip + 同步 update_manifest.xml 版本
 npm run icons     # 重新生成图标（编辑 scripts/make-icons.mjs 里的 SVG 后执行）
 ```
@@ -24,9 +25,15 @@ npm run icons     # 重新生成图标（编辑 scripts/make-icons.mjs 里的 SV
 ## 使用
 
 - 首次安装会自动打开管理页；也可以点工具栏图标或面板里的「管理全部」
-- 管理页：新建 / 编辑 / 删除 / 排序 prompt，设置每条的插入位置
+- 管理页：新建 / 编辑 / 删除 / 排序 prompt，设置每条的插入位置；站点管理配置支持的网站
 - 聊天页：输入框旁的 ⚡ 按钮 → 点选 prompt → 自动填入（prepend 在前 / append 在后，与已有内容直接拼接、零分隔；prompt 未以标点结尾时自动补句号）
-- 面板底部「快捷新增」可在不离开聊天页的情况下添加 prompt
+- 面板：顶部搜索框过滤（回车选第一条），数字键 1-9 快速选择；底部「快捷新增」
+- 快捷键 `Alt+P` 开关面板（可在 chrome://extensions/shortcuts 修改）
+- 变量占位符（插入时自动替换）：`{{clipboard}}` 剪贴板、`{{selection}}` 页面选中文本、
+  `{{date}}` / `{{time}}` / `{{datetime}}` 日期时间、`{{url}}` / `{{title}}` 页面信息；
+  未知变量原样保留，剪贴板读取失败保留字面量并 toast 提示
+- 悬浮按钮 / 面板跟随系统深浅色主题（豆包、DeepSeek 暗色模式下自动切换）
+- 管理页右上角「导出 / 导入配置」：JSON 备份，prompt 同 id 覆盖、站点跳过内置与域名冲突项
 
 ## 目录结构
 
@@ -47,9 +54,16 @@ src/
 
 ## 添加新站点支持
 
-1. 在 `src/content/adapters/` 新建适配器，提供候选选择器数组（容器或可编辑元素均可）
-2. 在 `adapters/index.ts` 注册
-3. 在 `manifest.json` 的 `content_scripts.matches` 加上站点域名
+管理页 →「站点管理」→ 新增站点：填名称和网址、按需填输入框候选选择器（每行一个，
+按序探测；全部失效时自动兜底查找页面底部的输入框），保存时 Chrome 会请求该域名的
+访问授权（`optional_host_permissions`，只授权填写的域名）。保存后已打开的目标站点
+页面会自动生效（配置热更新），无需刷新。
+
+- 豆包 / DeepSeek 为内置站点：随版本下发、可编辑（选择器/偏移/开关）、不可删除
+- 图标锚定默认自动识别输入框可视外壳；特殊布局可切「自定义选择器」指定依附元素
+- 按钮偏移默认 `-48 / -6`（输入框右边框线外 16px、略高出顶边）
+- 自建站点的注入通过 `chrome.scripting.registerContentScripts` 动态注册，
+  浏览器重启后保留，background 启动时会自愈重同步
 
 ## 已知限制
 

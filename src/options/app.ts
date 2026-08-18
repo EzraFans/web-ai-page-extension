@@ -5,6 +5,15 @@ import {
   type InsertPosition,
   type Prompt,
 } from '../shared/types';
+import { el } from './el';
+import { initSites, renderSitesSection } from './sites';
+import { exportAll, importFromFile } from './backup';
+
+type Tab = 'prompts' | 'sites';
+const TABS: Array<[Tab, string]> = [
+  ['prompts', 'Prompt 管理'],
+  ['sites', '站点管理'],
+];
 
 interface EditorState {
   /** null = 新建 */
@@ -18,6 +27,7 @@ let prompts: Prompt[] = [];
 let editor: EditorState = emptyEditor();
 /** 保存防重入：避免连点 / 双事件触发造成重复创建 */
 let saving = false;
+let tab: Tab = 'prompts';
 
 function emptyEditor(): EditorState {
   return { editingId: null, name: '', content: '', position: 'append' };
@@ -25,6 +35,7 @@ function emptyEditor(): EditorState {
 
 export function initApp(root: HTMLElement): void {
   render(root);
+  initSites(() => render(root));
 
   storage.onChange((next) => {
     prompts = next;
@@ -48,18 +59,59 @@ function render(root: HTMLElement): void {
 
   const shell = el('div', { class: 'shell' });
   const header = el('header', { class: 'header' });
-  header.append(
+
+  const headMain = el('div', {});
+  headMain.append(
     el('h1', { class: 'title', textContent: 'AI Prompt 快速插入' }),
     el('p', {
       class: 'subtitle',
       textContent: '在豆包 / DeepSeek 输入框旁的悬浮按钮中选择 prompt，仅填入不自动发送。',
     }),
   );
+
+  // 备份：导出 / 导入
+  const actions = el('div', { class: 'header-actions' });
+  const expBtn = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '导出配置' });
+  expBtn.onclick = () => void exportAll();
+  const fileInput = el('input', { type: 'file', accept: '.json,application/json' }) as HTMLInputElement;
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
+    fileInput.value = ''; // 允许重复选择同一文件
+    if (f) void importFromFile(f);
+  });
+  const impBtn = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '导入配置' });
+  impBtn.onclick = () => fileInput.click();
+  actions.append(impBtn, expBtn, fileInput);
+
+  header.append(headMain, actions);
   shell.append(header);
 
-  const layout = el('div', { class: 'layout' });
-  layout.append(renderList(), renderEditor());
-  shell.append(layout);
+  // Tab 切换：Prompt 管理 / 站点管理
+  const tabs = el('div', { class: 'tabs' });
+  for (const [key, label] of TABS) {
+    const btn = el('button', {
+      class: `tab${tab === key ? ' active' : ''}`,
+      type: 'button',
+      textContent: label,
+    });
+    btn.onclick = () => {
+      if (tab !== key) {
+        tab = key;
+        render(root);
+      }
+    };
+    tabs.append(btn);
+  }
+  shell.append(tabs);
+
+  if (tab === 'sites') {
+    shell.append(renderSitesSection());
+  } else {
+    const layout = el('div', { class: 'layout' });
+    layout.append(renderList(), renderEditor());
+    shell.append(layout);
+  }
   root.append(shell);
 }
 
@@ -180,7 +232,21 @@ function renderEditor(): HTMLElement {
     e.preventDefault(); // 兜底：Enter 提交场景
     void saveCurrent(err);
   });
-  form.append(nameLabel, nameInput, posLabel, posRow, contentLabel, contentInput, err, btnRow);
+  form.append(
+    nameLabel,
+    nameInput,
+    posLabel,
+    posRow,
+    contentLabel,
+    contentInput,
+    el('div', {
+      class: 'field-hint',
+      textContent:
+        '支持变量（插入时自动替换）：{{clipboard}} 剪贴板、{{selection}} 页面选中文本、{{date}} {{time}} {{datetime}} 日期时间、{{url}} {{title}} 页面信息',
+    }),
+    err,
+    btnRow,
+  );
   panel.append(form);
   return panel;
 }
@@ -239,26 +305,4 @@ async function remove(id: string): Promise<void> {
     editor = emptyEditor();
     render(document.getElementById('app')!);
   }
-}
-
-// ---------- 工具 ----------
-
-type ElProps = {
-  class?: string;
-  textContent?: string;
-  dataset?: Record<string, string>;
-} & Record<string, string | Record<string, string> | undefined>;
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: ElProps = {}): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  const { class: cls, dataset, ...rest } = props;
-  if (cls) node.className = cls;
-  if (dataset) Object.assign(node.dataset, dataset);
-  for (const [k, v] of Object.entries(rest)) {
-    if (typeof v === 'string') {
-      if (k === 'textContent') node.textContent = v;
-      else (node as unknown as Record<string, unknown>)[k] = v;
-    }
-  }
-  return node;
 }

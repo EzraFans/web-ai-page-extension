@@ -47,6 +47,12 @@ body {
   padding: 32px 24px 64px;
 }
 
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
 .header .title {
   margin: 0 0 8px;
   font-size: 24px;
@@ -55,6 +61,18 @@ body {
   margin: 0 0 24px;
   color: var(--text-dim);
   font-size: 14px;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
 }
 
 .layout {
@@ -245,5 +263,76 @@ body {
 
 .btn-row {
   display: flex;
+  gap: 10px;
+}
+
+/* ---------- 站点管理 ---------- */
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 20px;
+}
+.tab {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.site-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.site-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.site-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+}
+.site-hosts {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.site-selectors {
+  min-height: 120px;
+}
+
+.offset-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }

@@ -1,5 +1,6 @@
-import { EMPTY_INDEX, INDEX_KEY, SYNC_SOFT_LIMIT_BYTES, promptKey } from './keys';
-import type { Prompt, PromptInput, StorageIndex } from './types';
+import { EMPTY_INDEX, INDEX_KEY, SITES_KEY, SYNC_SOFT_LIMIT_BYTES, promptKey } from './keys';
+import { DEFAULT_SITES } from './default-sites';
+import type { Prompt, PromptInput, SiteConfig, StorageIndex } from './types';
 
 
 type Area = 'sync' | 'local';
@@ -79,6 +80,28 @@ export class StorageService {
       index.order.splice(i, 1);
       await this.writeIndex(index);
     }
+  }
+
+  /**
+   * 批量导入（备份恢复）：同 id 覆盖明细且保持原顺序位置，新 id 追加到尾部。
+   * 返回 { added, updated } 供导入完成后汇报。
+   */
+  async importAll(items: Prompt[]): Promise<{ added: number; updated: number }> {
+    const index = await this.readIndex();
+    let added = 0;
+    let updated = 0;
+    for (const p of items) {
+      if (index.order.includes(p.id)) {
+        updated++;
+        await this.writePrompt(p, await this.get(p.id));
+      } else {
+        index.order.push(p.id);
+        await this.writePrompt(p, null);
+        added++;
+      }
+    }
+    await this.writeIndex(index);
+    return { added, updated };
   }
 
   /** 只写索引一次，不触碰明细，避免烧写配额 */
@@ -172,6 +195,83 @@ export function isQuotaError(e: unknown): boolean {
 
 /** 供 UI 使用的单例 */
 export const storage = new StorageService();
+
+/**
+ * 站点配置存储：单 key 整体读写（配置体量小，远低于 sync 单 item 8KB 限制）。
+ * 首次读取惰性写入内置站点；之后每次读取补齐缺失的内置站点
+ * （扩展升级新增内置站点 / 存储被清时不丢预置项），不触碰用户自建条目。
+ */
+export class SiteStorage {
+  private listeners = new Set<(sites: SiteConfig[]) => void>();
+  private started = false;
+
+  async list(): Promise<SiteConfig[]> {
+    const r = await chrome.storage.sync.get(SITES_KEY);
+    const stored = r[SITES_KEY] as SiteConfig[] | undefined;
+    let sites: SiteConfig[];
+    let changed = false;
+    if (!Array.isArray(stored) || stored.length === 0) {
+      sites = structuredClone(DEFAULT_SITES);
+      changed = true;
+    } else {
+      sites = [...stored];
+      for (const def of DEFAULT_SITES) {
+        if (!sites.some((s) => s.id === def.id)) {
+          sites.push(structuredClone(def));
+          changed = true;
+        }
+      }
+    }
+    if (changed) await chrome.storage.sync.set({ [SITES_KEY]: sites });
+    return sites;
+  }
+
+  /** upsert：按 id 匹配，存在则整体替换，否则追加 */
+  async save(site: SiteConfig): Promise<void> {
+    const sites = await this.list();
+    const i = sites.findIndex((s) => s.id === site.id);
+    if (i >= 0) sites[i] = site;
+    else sites.push(site);
+    await chrome.storage.sync.set({ [SITES_KEY]: sites });
+  }
+
+  async remove(id: string): Promise<void> {
+    const sites = await this.list();
+    const target = sites.find((s) => s.id === id);
+    if (!target) return;
+    if (target.builtin) throw new Error('内置站点不可删除，可将其禁用');
+    await chrome.storage.sync.set({ [SITES_KEY]: sites.filter((s) => s.id !== id) });
+  }
+
+  /** content script 入口：按当前页 hostname 找启用的配置 */
+  async getEnabledForHost(hostname: string): Promise<SiteConfig | null> {
+    const sites = await this.list();
+    return sites.find((s) => s.enabled && s.hostnames.includes(hostname)) ?? null;
+  }
+
+  /** storage.onChanged 订阅，返回取消函数 */
+  onChange(cb: (sites: SiteConfig[]) => void): () => void {
+    this.listeners.add(cb);
+    this.ensureWatcher();
+    return () => this.listeners.delete(cb);
+  }
+
+  private notify(): void {
+    void this.list().then((next) => {
+      for (const cb of this.listeners) cb(next);
+    });
+  }
+
+  private ensureWatcher(): void {
+    if (this.started) return;
+    this.started = true;
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if ((area === 'sync' || area === 'local') && changes[SITES_KEY]) this.notify();
+    });
+  }
+}
+
+export const sites = new SiteStorage();
 
 declare global {
   interface Window {
