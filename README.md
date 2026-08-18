@@ -11,6 +11,8 @@ npm install
 npm run build     # 类型检查 + 主构建（background/options）+ content 构建
 npm run dev       # 两个 watch 并行，改完代码后到 chrome://extensions 刷新扩展
 npm run typecheck
+npm run pack      # 发布打包：crx + 版本号 zip + 同步 update_manifest.xml 版本
+npm run icons     # 重新生成图标（编辑 scripts/make-icons.mjs 里的 SVG 后执行）
 ```
 
 ## 本地加载
@@ -23,7 +25,7 @@ npm run typecheck
 
 - 首次安装会自动打开管理页；也可以点工具栏图标或面板里的「管理全部」
 - 管理页：新建 / 编辑 / 删除 / 排序 prompt，设置每条的插入位置
-- 聊天页：输入框旁的 ⚡ 按钮 → 点选 prompt → 自动填入（prepend 在前 / append 在后，空行分隔）
+- 聊天页：输入框旁的 ⚡ 按钮 → 点选 prompt → 自动填入（prepend 在前 / append 在后，与已有内容直接拼接、零分隔；prompt 未以标点结尾时自动补句号）
 - 面板底部「快捷新增」可在不离开聊天页的情况下添加 prompt
 
 ## 目录结构

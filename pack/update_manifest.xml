@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  企业策略安装用的更新清单。
+  使用方法：把本文件和 ai-prompt-quick-insert.crx 一起放到任意 HTTP(S) 服务器，
+  把下面两处 https://your-server.example.com/wpx/ 替换成实际地址
+  （codebase 是相对/绝对 URL，指向 .crx 文件）。
+  以后发新版本：重新打包后更新 crx 文件并把 version 改成新版号即可，URL 不变。
+-->
+<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
+  <app appid='oedbdafhhbgjdheolckdcdeglmfbepap'>
+    <updatecheck codebase='https://your-server.example.com/wpx/ai-prompt-quick-insert.crx' version='0.1.8' />
+  </app>
+</gupdate>

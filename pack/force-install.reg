@@ -1,0 +1,11 @@
+Windows Registry Editor Version 5.00
+
+; Chrome 扩展静默安装（企业策略，免应用商店）。
+; 前提：ai-prompt-quick-insert.crx 和 update_manifest.xml 已放到 HTTP(S) 服务器上，
+; 且 update_manifest.xml 里的 codebase 已改成实际地址。
+; 使用：把下面 URL 换成实际的 update_manifest.xml 地址后，双击本文件导入注册表，
+; 重启 Chrome 即自动安装（右下角扩展列表出现图标，不可被用户手动移除）。
+; 卸载：删除本注册表值并重启 Chrome。
+
+[HKEY_CURRENT_USER\Software\Policies\Google\Chrome\ExtensionInstallForcelist]
+"1"="oedbdafhhbgjdheolckdcdeglmfbepap;https://your-server.example.com/wpx/update_manifest.xml"

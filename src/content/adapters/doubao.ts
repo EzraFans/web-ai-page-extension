@@ -22,7 +22,8 @@ const CANDIDATES = [
 export const doubaoAdapter: SiteAdapter = {
   id: 'doubao',
   hostnames: ['www.doubao.com', 'doubao.com'],
-  buttonOffset: { right: 10, down: -6 },
+  // 统一规格：按钮左缘距输入框右边框线外 16px（-48 = 32px 按钮 + 16px 间距）
+  buttonOffset: { right: -48, down: -6 },
   findInput() {
     for (const sel of CANDIDATES) {
       let node: Element | null = null;

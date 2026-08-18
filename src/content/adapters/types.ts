@@ -5,31 +5,48 @@ export interface SiteAdapter {
   findInput(): HTMLElement | null;
   /**
    * 悬浮按钮相对输入框容器右上角的偏移（站点布局差异微调用）。
-   * right: 向右离容器右边缘的距离；down: 向下离容器顶边的距离。
+   * right: 按钮右缘离容器右边缘的距离（负值 = 放到容器外侧右边，不遮挡输入区）；
+   * down: 按钮顶缘离容器顶边的距离（负值 = 略高出容器顶边）。
    */
   buttonOffset?: { right: number; down: number };
 }
 
 /**
- * 从可编辑元素向上找输入框容器：带可见边框/圆角且宽度明显大于编辑元素本身的祖先。
- * 用于把悬浮按钮锚定到输入框整体的右上角，而不是编辑元素本身的右上角。
+ * 从可编辑元素向上找输入框的「可视外壳」（带边框/圆角/阴影/底色的盒子）。
+ * 用于把悬浮按钮锚定到输入框右边框线外侧。
+ * 规则：向上收集所有带外壳特征、宽度在 [编辑元素, 1.35×编辑元素] 窗口内的祖先，
+ * 取**最宽**的——内层圆角装饰比它窄会被淘汰，整个聊天列（超窗口）会被排除，
+ * 留下的最宽者即使不是边框本尊，也是与输入框同宽的外层，右缘一致。
+ * 窗口内一个都没有时退回第一个带外壳特征的宽祖先，最后退回编辑元素本身。
  */
 export function findInputContainer(editEl: HTMLElement): HTMLElement {
   let node: HTMLElement | null = editEl;
   const editWidth = editEl.getBoundingClientRect().width;
-  for (let i = 0; i < 6 && node && node.parentElement; i++) {
+  let fallback: HTMLElement | null = null;
+  let best: HTMLElement | null = null;
+  let bestW = 0;
+  for (let i = 0; i < 12 && node && node.parentElement; i++) {
     node = node.parentElement;
     if (node.clientWidth < 120) continue; // 太窄，不是输入区
     const style = getComputedStyle(node);
     const hasChrome =
       style.borderStyle !== 'none' ||
       Number.parseFloat(style.borderRadius) > 0 ||
-      style.boxShadow !== 'none';
-    if (hasChrome && node.getBoundingClientRect().width >= editWidth) {
-      return node;
+      style.boxShadow !== 'none' ||
+      style.backgroundColor !== 'rgba(0, 0, 0, 0)';
+    if (!hasChrome) continue;
+    const w = node.getBoundingClientRect().width;
+    if (w < editWidth) continue; // 比编辑元素还窄，是内层装饰
+    if (w <= editWidth * 1.35) {
+      if (w > bestW) {
+        best = node;
+        bestW = w;
+      }
+    } else if (!fallback) {
+      fallback = node; // 超窗口的宽容器（整个聊天列），仅兜底
     }
   }
-  return editEl; // 找不到就退回编辑元素本身
+  return best ?? fallback ?? editEl;
 }
 
 /** 从候选选择器中找第一个可见的可编辑元素；命中容器时向内探测 */

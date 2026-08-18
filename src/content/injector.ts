@@ -10,7 +10,8 @@ import type { InsertPosition } from '../shared/types';
  * 结束：光标移到末尾，保持 focus，用户可继续输入或自行发送。
  */
 
-const JOINER = '\n\n';
+/** 视为「已用标点收尾」的字符：不再补句号 */
+const TERMINATORS = '.,!?;:…。！？；：、）)」』】"]\'';
 /** 超过此长度时 execCommand 性能差，切换整体重设 */
 const LONG_TEXT_THRESHOLD = 2000;
 
@@ -54,10 +55,24 @@ function verify(el: HTMLElement, probe: string): boolean {
   return readValue(el).includes(probe);
 }
 
+/**
+ * prompt 结尾补句号：与已有内容直接拼接（零分隔）时，若 prompt 没有标点收尾
+ * 会和上下文粘连，补一个终止标点（中文全角、ASCII 字母/数字结尾用半角）。
+ */
+function terminate(text: string): string {
+  const t = text.replace(/\s+$/, '');
+  const last = t[t.length - 1];
+  if (!last || TERMINATORS.includes(last)) return t;
+  return t + (/[A-Za-z0-9]$/.test(t) ? '.' : '。');
+}
+
 function compose(before: string, text: string, position: InsertPosition): string {
-  const b = before;
-  if (!b.trim()) return text; // 空输入框直接填入，不加换行
-  return position === 'prepend' ? `${text}${JOINER}${b}` : `${b}${JOINER}${text}`;
+  const t = terminate(text);
+  if (!before.trim()) return t; // 空输入框直接填入
+  // 剥掉已有内容首尾的换行后零分隔拼接（contenteditable 编辑器尾部常驻空段落、
+  // textarea 末行回车都会带尾部 \n，不剥会拼出多余换行）
+  const b = before.replace(/^[\r\n]+|[\r\n]+$/g, '');
+  return position === 'prepend' ? `${t}${b}` : `${b}${t}`;
 }
 
 function isTextField(el: HTMLElement): boolean {
@@ -85,14 +100,16 @@ function viaNativeSetter(
 function viaExecCommand(el: HTMLElement, before: string, text: string, position: InsertPosition): boolean {
   if (text.length > LONG_TEXT_THRESHOLD) return false; // 超长走 direct
   el.focus();
-  // 空输入框无需 caret 前置差异，直接插
-  if (!before.trim()) {
-    placeCaret(el, 'end');
-    return document.execCommand('insertText', false, text);
-  }
-  placeCaret(el, position === 'prepend' ? 'start' : 'end');
-  const insertee = position === 'prepend' ? `${text}${JOINER}` : `${JOINER}${text}`;
-  return document.execCommand('insertText', false, insertee);
+  // 整体重设而非光标处局部插入：把光标放到「元素内容末尾」会落在编辑器尾部的
+  // 空段落之后，插入的内容会被编辑器渲染成额外空段落（多余换行/空行）。
+  // 全选后一次 insertText 重写全部内容，段落结构由编辑器统一重建。
+  const sel = window.getSelection();
+  if (!sel) return false;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return document.execCommand('insertText', false, compose(before, text, position));
 }
 
 // ---- 策略 2：模拟 paste 事件 ----

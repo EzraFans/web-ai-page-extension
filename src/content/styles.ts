@@ -52,11 +52,12 @@ export const FLOATER_STYLES = `
   display: flex;
 }
 
+/* 统一边距节奏：所有区块文本水平起点 14px（.list 容器 4px + 列表项内 10px） */
 .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px 8px;
+  padding: 12px 14px 8px;
 }
 .panel-title {
   font-size: 13px;
@@ -79,8 +80,9 @@ export const FLOATER_STYLES = `
 .list {
   list-style: none;
   margin: 0;
-  padding: 4px 6px 6px;
+  padding: 6px 4px 8px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
 }
@@ -136,7 +138,7 @@ export const FLOATER_STYLES = `
 
 .quick-form {
   border-top: 1px solid rgba(120, 130, 145, 0.2);
-  padding: 10px 12px;
+  padding: 10px 14px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -187,13 +189,17 @@ export const FLOATER_STYLES = `
 }
 .quick-toggle {
   border: none;
+  border-top: 1px solid rgba(120, 130, 145, 0.2);
   background: none;
   color: #3d6ff2;
   font-size: 12px;
   cursor: pointer;
-  padding: 0;
+  padding: 10px 14px 12px;
   font-family: inherit;
-  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
 }
 .quick-toggle:hover {
   text-decoration: underline;

@@ -24,6 +24,7 @@ export class FloaterController {
   private toast: HTMLElement | null = null;
   private panel: Panel | null = null;
   private inputEl: HTMLElement | null = null;
+  private lastContainer: HTMLElement | null = null;
   private disposers: Array<() => void> = [];
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
@@ -46,10 +47,16 @@ export class FloaterController {
   async start(): Promise<void> {
     log('启动：站点', this.adapter.id, location.href);
     // 永不放弃：页面可能慢加载 / 用户先落在无输入框的路由再切到聊天页
+    // 长时间未找到时提示一句，方便区分「脚本没注入」和「选择器没命中」
+    const slowWarn = setTimeout(
+      () => log('15 秒仍未找到输入框，继续等待中…（未登录/非聊天页属正常）'),
+      15000,
+    );
     const input = await waitForElement(() => this.adapter.findInput(), {
       timeout: Infinity,
       interval: 500,
     });
+    clearTimeout(slowWarn);
     if (!input || this.destroyed) return;
     log(
       '找到输入框',
@@ -107,10 +114,21 @@ export class FloaterController {
 
     // 锚定输入框容器（而非编辑元素本身）的右上角，两站点统一观感
     const container = findInputContainer(input);
+    if (container !== this.lastContainer) {
+      this.lastContainer = container;
+      const r = container.getBoundingClientRect();
+      log(
+        '锚定容器',
+        container.tagName.toLowerCase() +
+          (container.id ? '#' + container.id : '') +
+          '.' + String(container.className).slice(0, 60),
+        `宽${Math.round(r.width)} 高${Math.round(r.height)} 右缘x=${Math.round(r.right)} 上缘y=${Math.round(r.top)}`,
+      );
+    }
     const rect = container.getBoundingClientRect();
 
     const { right: offRight, down: offDown } = this.adapter.buttonOffset ?? {
-      right: 8,
+      right: -48, // 默认同样遵循「右边框线外 16px」规格
       down: -6,
     };
     const BTN = 32;
@@ -138,27 +156,33 @@ export class FloaterController {
     const PANEL_W = 320;
     const PANEL_MAX_H = 420;
     const MARGIN = 8;
+    const GAP = 6;
 
-    // 水平：默认右对齐展开；若左缘会超出视口 → 让面板右缘贴住按钮左缘向左展开
+    // 水平：左侧空间够 → 与按钮右对齐；不够 → 用 right 属性锚定，
+    // 面板右缘贴住按钮左缘向左展开（宽度变化也始终贴合）
     const spaceLeft = btnRect.left - MARGIN;
-    let panelLeft: number;
-    if (spaceLeft >= PANEL_W) {
-      panelLeft = btnRect.right - PANEL_W; // 常规：与按钮右对齐
+    if (spaceLeft >= Math.min(PANEL_W, window.innerWidth - 2 * MARGIN)) {
+      panelEl.style.left = `${Math.round(Math.max(MARGIN, btnRect.right - PANEL_W))}px`;
+      panelEl.style.right = 'auto';
     } else {
-      panelLeft = Math.max(MARGIN, btnRect.left - PANEL_W); // 翻转：向左展开
+      panelEl.style.left = 'auto';
+      panelEl.style.right = `${Math.round(window.innerWidth - btnRect.left)}px`;
     }
 
-    // 垂直：按钮下方放不下 → 面板底缘对齐按钮顶缘向上展开
-    let panelTop = btnRect.bottom + 6;
+    // 垂直：下方放得下 → 面板顶缘贴按钮底缘；放不下 → 用 bottom 属性锚定，
+    // 面板底缘贴住按钮顶缘向上展开。必须锚 bottom 而不是按预留高度算 top：
+    // 面板实际高度常小于预留值（prompt 少时），按 top 定位会在面板和按钮间留出大空隙。
     const spaceBelow = window.innerHeight - btnRect.bottom - MARGIN;
-    if (spaceBelow < Math.min(PANEL_MAX_H, 220)) {
-      panelTop = btnRect.top - 6 - Math.min(PANEL_MAX_H, Math.max(btnRect.top - MARGIN, 200));
-      panelTop = Math.max(MARGIN, panelTop);
+    if (spaceBelow >= Math.min(PANEL_MAX_H, 220)) {
+      panelEl.style.top = `${Math.round(btnRect.bottom + GAP)}px`;
+      panelEl.style.bottom = 'auto';
+      panelEl.style.maxHeight = `${Math.round(Math.min(PANEL_MAX_H, spaceBelow))}px`;
+    } else {
+      panelEl.style.top = 'auto';
+      panelEl.style.bottom = `${Math.round(window.innerHeight - btnRect.top + GAP)}px`;
+      const spaceAbove = btnRect.top - MARGIN - GAP;
+      panelEl.style.maxHeight = `${Math.round(Math.max(160, Math.min(PANEL_MAX_H, spaceAbove)))}px`;
     }
-
-    panelEl.style.left = `${Math.round(panelLeft)}px`;
-    panelEl.style.top = `${Math.round(panelTop)}px`;
-    panelEl.style.right = 'auto';
   }
 
   private watchReposition(): void {

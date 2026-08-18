@@ -49,11 +49,17 @@ export class Panel {
       this.renderList();
     });
 
-    // 点击面板外部关闭
+    // 点击面板外部关闭。注意不能用 composedPath 判断「是否点在面板内」：
+    // 面板在闭合 Shadow DOM 里，composedPath 对外不暴露内部节点，永远不含
+    // panel.root —— 旧写法导致点面板内任何位置（如快捷新增）都被当成外部而关闭。
+    // 正确判据：闭合 shadow 内部的点击 e.target 会被重定向到 host 元素。
     document.addEventListener('click', (e) => {
       if (!this.open) return;
-      const path = e.composedPath();
-      if (!path.includes(this.root)) this.setOpen(false);
+      const root = this.root.getRootNode();
+      const host = root instanceof ShadowRoot ? root.host : null;
+      const t = e.target;
+      if (host && t instanceof Node && host.contains(t)) return; // 扩展自己的 UI，不关
+      this.setOpen(false);
     }, true);
     // Esc 关闭
     document.addEventListener('keydown', (e) => {
@@ -158,7 +164,7 @@ export class Panel {
 
     this.quickToggleBtn.replaceChildren(
       svgIcon(Array.from(ICONS.plus), 12),
-      ' 快捷新增',
+      '快捷新增',
     );
     this.quickToggleBtn.addEventListener('click', () => {
       const hidden = this.quickWrap.style.display === 'none';
