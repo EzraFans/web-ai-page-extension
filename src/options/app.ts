@@ -143,7 +143,11 @@ function renderList(): HTMLElement {
 }
 
 function renderItem(p: Prompt, i: number): HTMLElement {
-  const li = el('li', { class: 'prompt-item', dataset: { id: p.id } });
+  const li = el('li', {
+    class: `prompt-item${editor.editingId === p.id ? ' active' : ''}`,
+    dataset: { id: p.id },
+    title: '点击在右侧编辑',
+  });
 
   const main = el('div', { class: 'item-main' });
   const nameRow = el('div', { class: 'item-name-row' });
@@ -165,11 +169,15 @@ function renderItem(p: Prompt, i: number): HTMLElement {
   const down = el('button', { class: 'btn btn-ghost btn-sm', textContent: '↓', title: '下移' });
   down.disabled = i === prompts.length - 1;
   down.onclick = () => void move(p.id, +1);
-  const edit = el('button', { class: 'btn btn-ghost btn-sm', textContent: '编辑' });
-  edit.onclick = () => startEdit(p.id);
-  const del = el('button', { class: 'btn btn-danger btn-sm', textContent: '删除' });
+  const del = el('button', { class: 'btn btn-danger btn-sm icon-btn', textContent: '✕', title: '删除' });
   del.onclick = () => void remove(p.id);
-  actions.append(up, down, edit, del);
+  actions.append(up, down, del);
+
+  // 点击条目直接在右侧进入编辑（操作按钮的点击不冒泡触发）
+  li.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    startEdit(p.id);
+  });
 
   li.append(main, actions);
   return li;
@@ -178,9 +186,15 @@ function renderItem(p: Prompt, i: number): HTMLElement {
 function renderEditor(): HTMLElement {
   const panel = el('section', { class: 'panel editor-panel' });
   const isEditing = editor.editingId !== null;
-  panel.append(
-    el('h2', { class: 'panel-title', textContent: isEditing ? '编辑 Prompt' : '新建 Prompt' }),
-  );
+  const titleRow = el('div', { class: 'panel-title-row' });
+  titleRow.append(el('h2', { class: 'panel-title', textContent: isEditing ? '编辑 Prompt' : '新建 Prompt' }));
+  const createNew = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '＋ 新建' });
+  createNew.onclick = () => {
+    editor = emptyEditor();
+    render(document.getElementById('app')!);
+  };
+  titleRow.append(createNew);
+  panel.append(titleRow);
 
   const nameLabel = el('label', { class: 'field-label', textContent: `名称（≤ ${LIMITS.nameMaxLength} 字）` });
   const nameInput = el('input', {
@@ -220,17 +234,9 @@ function renderEditor(): HTMLElement {
   const err = el('div', { class: 'form-error', role: 'alert' });
   const btnRow = el('div', { class: 'btn-row' });
   // 显式 type="button"：防止 form 内默认 submit 行为导致 onclick + submit 双触发、重复创建
-  const save = el('button', { class: 'btn btn-primary', type: 'button', textContent: isEditing ? '保存' : '创建' });
+  const save = el('button', { class: 'btn btn-primary', type: 'button', textContent: '保存' });
   save.onclick = () => void saveCurrent(err);
   btnRow.append(save);
-  if (isEditing) {
-    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', textContent: '取消' });
-    cancel.onclick = () => {
-      editor = emptyEditor();
-      render(document.getElementById('app')!);
-    };
-    btnRow.append(cancel);
-  }
 
   const form = el('form', { class: 'form' });
   form.addEventListener('submit', (e) => {
@@ -280,10 +286,11 @@ async function saveCurrent(errEl: HTMLElement): Promise<void> {
         content: editor.content,
         position: editor.position,
       });
+      // 编辑保存后停留在该条，右侧展示已保存内容、左侧保持高亮
     } else {
       await storage.create({ name: editor.name, content: editor.content, position: editor.position });
+      editor = emptyEditor();
     }
-    editor = emptyEditor();
     render(document.getElementById('app')!);
   } catch (e) {
     errEl.textContent = e instanceof Error ? e.message : '保存失败';

@@ -99,6 +99,17 @@ body {
   font-size: 16px;
 }
 
+.panel-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.panel-title-row .panel-title {
+  margin: 0;
+}
+
 .empty {
   padding: 24px 8px;
   color: var(--text-dim);
@@ -125,6 +136,14 @@ body {
   gap: 12px;
   justify-content: space-between;
   align-items: flex-start;
+  cursor: pointer;
+}
+.prompt-item:hover {
+  border-color: var(--primary);
+}
+.prompt-item.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
 }
 
 .item-main {
@@ -210,6 +229,11 @@ body {
 .btn-sm {
   padding: 4px 10px;
   font-size: 12px;
+}
+.icon-btn {
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .form {
