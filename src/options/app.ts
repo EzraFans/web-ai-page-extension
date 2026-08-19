@@ -25,8 +25,10 @@ interface EditorState {
 
 let prompts: Prompt[] = [];
 let editor: EditorState = emptyEditor();
-/** 保存防重入：避免连点 / 双事件触发造成重复创建 */
-let saving = false;
+/** 保存进行中的编辑器快照：防重入（连点/双事件）、未保存判断、保存后是否清空都以它为基准 */
+let inFlightSave: EditorState | null = null;
+/** 最近一次保存失败的提示：经下一次 render 呈现到表单、呈现即消费（errEl 闭包节点可能已随重建失效） */
+let saveError: string | null = null;
 let tab: Tab = 'prompts';
 
 function emptyEditor(): EditorState {
@@ -35,7 +37,7 @@ function emptyEditor(): EditorState {
 
 export function initApp(root: HTMLElement): void {
   render(root);
-  initSites(() => render(root));
+  initSites(rerenderOnStorageChange);
 
   storage.onChange((next) => {
     prompts = next;
@@ -43,7 +45,7 @@ export function initApp(root: HTMLElement): void {
     if (editor.editingId && !prompts.some((p) => p.id === editor.editingId)) {
       editor = emptyEditor();
     }
-    render(root);
+    rerenderOnStorageChange();
   });
 
   void storage.list().then((next) => {
@@ -120,6 +122,16 @@ function render(root: HTMLElement): void {
   root.append(shell);
 }
 
+/**
+ * 存储事件驱动的重渲染（prompt / 站点两个存储监听共用）：
+ * 保存在途时跳过——saveCurrent 成功收尾或失败分支会统一 render，
+ * 避免重建表单打断正在输入的焦点/输入法组合态。
+ */
+function rerenderOnStorageChange(): void {
+  if (inFlightSave !== null) return;
+  render(document.getElementById('app')!);
+}
+
 function renderList(): HTMLElement {
   const listWrap = el('section', { class: 'panel list-panel' });
   listWrap.append(el('h2', { class: 'panel-title', textContent: `我的 Prompt（${prompts.length}）` }));
@@ -147,6 +159,7 @@ function renderItem(p: Prompt, i: number): HTMLElement {
     class: `prompt-item${editor.editingId === p.id ? ' active' : ''}`,
     dataset: { id: p.id },
     title: '点击在右侧编辑',
+    tabIndex: '0', // 键盘可达；camelCase 的 tabIndex 才是有效 DOM property，小写 tabindex 只是无效 expando
   });
 
   const main = el('div', { class: 'item-main' });
@@ -173,11 +186,17 @@ function renderItem(p: Prompt, i: number): HTMLElement {
   del.onclick = () => void remove(p.id);
   actions.append(up, down, del);
 
-  // 点击条目直接在右侧进入编辑（操作按钮的点击不冒泡触发）
-  li.addEventListener('click', (e) => {
+  // 点击 / 聚焦后 Enter·空格 均可直接在右侧进入编辑（操作按钮自身的事件不拦截）；有未保存修改先确认
+  const activate = (e: Event) => {
     if ((e.target as HTMLElement).closest('button')) return;
-    startEdit(p.id);
-  });
+    if (e instanceof KeyboardEvent) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault(); // 空格默认会滚动页面
+    }
+    if (confirmDiscard()) startEdit(p.id);
+  };
+  li.addEventListener('click', activate);
+  li.addEventListener('keydown', activate);
 
   li.append(main, actions);
   return li;
@@ -190,6 +209,7 @@ function renderEditor(): HTMLElement {
   titleRow.append(el('h2', { class: 'panel-title', textContent: isEditing ? '编辑 Prompt' : '新建 Prompt' }));
   const createNew = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', textContent: '＋ 新建' });
   createNew.onclick = () => {
+    if (!confirmDiscard()) return;
     editor = emptyEditor();
     render(document.getElementById('app')!);
   };
@@ -231,7 +251,9 @@ function renderEditor(): HTMLElement {
   contentInput.value = editor.content;
   contentInput.addEventListener('input', () => (editor.content = contentInput.value));
 
-  const err = el('div', { class: 'form-error', role: 'alert' });
+  // 上次保存失败的提示取自模块状态：保存期间表单可能已被重建（切换条目等），写旧节点用户看不到
+  const err = el('div', { class: 'form-error', role: 'alert', textContent: saveError ?? '' });
+  saveError = null; // 呈现即消费，显示生命周期与旧行为一致（到下次重渲染为止）
   const btnRow = el('div', { class: 'btn-row' });
   // 显式 type="button"：防止 form 内默认 submit 行为导致 onclick + submit 双触发、重复创建
   const save = el('button', { class: 'btn btn-primary', type: 'button', textContent: '保存' });
@@ -264,38 +286,84 @@ function renderEditor(): HTMLElement {
 
 // ---------- 动作 ----------
 
+/** 三项内容字段是否一致（EditorState 与 Prompt 通用） */
+function sameContent(
+  a: Pick<EditorState, 'name' | 'content' | 'position'>,
+  b: Pick<EditorState, 'name' | 'content' | 'position'>,
+): boolean {
+  return a.name === b.name && a.content === b.content && a.position === b.position;
+}
+
+/** 编辑器是否有未保存的修改（保存进行中的内容以快照为基准，落库前不算丢失） */
+function editorIsDirty(): boolean {
+  // 新建且没输入过内容：没有可丢弃的修改
+  if (editor.editingId === null && editor.name === '' && editor.content === '') return false;
+  // 基准：对得上号的保存快照，否则已存储内容（新建 / 条目已不存在则视为空）
+  const ref =
+    inFlightSave !== null && inFlightSave.editingId === editor.editingId
+      ? inFlightSave
+      : prompts.find((p) => p.id === editor.editingId) ?? emptyEditor();
+  return !sameContent(editor, ref);
+}
+
+/** 有未保存修改时先确认再放弃；返回 false 表示用户取消 */
+function confirmDiscard(): boolean {
+  return !editorIsDirty() || confirm('当前编辑内容尚未保存，确定放弃修改吗？');
+}
+
 function startEdit(id: string): void {
-  const p = prompts.find((x) => x.id === id);
-  if (!p) return;
-  editor = { editingId: p.id, name: p.name, content: p.content, position: p.position };
+  if (inFlightSave !== null && inFlightSave.editingId === id) {
+    // 该条正在保存中：以保存快照为准重载（此刻存储里可能还是旧值，按旧值重载会把显示回退）
+    editor = { ...inFlightSave };
+  } else {
+    const p = prompts.find((x) => x.id === id);
+    if (!p) return;
+    editor = { editingId: p.id, name: p.name, content: p.content, position: p.position };
+  }
   render(document.getElementById('app')!);
 }
 
 async function saveCurrent(errEl: HTMLElement): Promise<void> {
-  if (saving) return; // 双事件/连点防重入
+  if (inFlightSave !== null) {
+    // 双事件/连点防重入：同一保存的重复触发静默忽略；
+    // 保存期间已切到其他内容再点保存时，明确提示而非静默丢弃
+    if (editor.editingId !== inFlightSave.editingId || !sameContent(editor, inFlightSave)) {
+      errEl.textContent = '正在保存上一条，请稍候再试';
+    }
+    return;
+  }
+  saveError = null; // 新的保存尝试：清掉上一次的失败提示
   const error = validatePromptInput({ name: editor.name, content: editor.content, position: editor.position });
   if (error) {
     errEl.textContent = error;
     return;
   }
-  saving = true;
+  editor.name = editor.name.trim(); // 与 storage 端写入时的 trim 对齐，避免保存后被误判"有未保存修改"
+  const snapshot: EditorState = { ...editor }; // await 前固定本次要保存的值
+  inFlightSave = snapshot;
   try {
-    if (editor.editingId) {
-      await storage.update(editor.editingId, {
-        name: editor.name,
-        content: editor.content,
-        position: editor.position,
+    if (snapshot.editingId) {
+      await storage.update(snapshot.editingId, {
+        name: snapshot.name,
+        content: snapshot.content,
+        position: snapshot.position,
       });
       // 编辑保存后停留在该条，右侧展示已保存内容、左侧保持高亮
     } else {
-      await storage.create({ name: editor.name, content: editor.content, position: editor.position });
-      editor = emptyEditor();
+      await storage.create({ name: snapshot.name, content: snapshot.content, position: snapshot.position });
+      // 仅当保存期间用户未切换条目、未继续输入时才清空，避免覆盖刚点开的条目
+      if (editor.editingId === snapshot.editingId && sameContent(editor, snapshot)) {
+        editor = emptyEditor();
+      }
     }
     render(document.getElementById('app')!);
   } catch (e) {
-    errEl.textContent = e instanceof Error ? e.message : '保存失败';
+    // 失败提示写入模块状态并重渲染：errEl 可能已随保存期间的切换/重建而脱离文档；
+    // 重渲染同时把 onChange 在途跳过的列表/表单变化一并呈现（editor 可能已被重置）
+    saveError = e instanceof Error ? e.message : '保存失败';
+    render(document.getElementById('app')!);
   } finally {
-    saving = false;
+    inFlightSave = null;
   }
 }
 

@@ -60,6 +60,10 @@ export class StorageService {
   async update(id: string, patch: Partial<PromptInput>): Promise<void> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`prompt 不存在: ${id}`);
+    // 并发删除防御：条目已被 remove 移出索引时不再回写，
+    // 避免留下索引外、list() 不可见却占配额的幽灵数据。
+    // check-then-write 并非原子（chrome.storage 无事务），仅收窄竞态窗口。
+    if (!(await this.readIndex()).order.includes(id)) throw new Error(`prompt 不存在: ${id}`);
     const next: Prompt = {
       ...existing,
       ...('name' in patch ? { name: (patch.name ?? existing.name).trim() } : {}),
